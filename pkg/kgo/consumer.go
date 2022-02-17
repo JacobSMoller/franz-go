@@ -31,11 +31,12 @@ func (o Offset) MarshalJSON() ([]byte, error) {
 
 // String returns the offset as a string; the purpose of this is for logs.
 func (o Offset) String() string {
-	if o.relative == 0 {
+	switch {
+	case o.relative == 0:
 		return fmt.Sprintf("{%d.%d %d}", o.at, o.epoch, o.currentEpoch)
-	} else if o.relative > 0 {
+	case o.relative > 0:
 		return fmt.Sprintf("{%d+%d.%d %d}", o.at, o.relative, o.epoch, o.currentEpoch)
-	} else {
+	default:
 		return fmt.Sprintf("{%d-%d.%d %d}", o.at, o.relative, o.epoch, o.currentEpoch)
 	}
 }
@@ -929,7 +930,7 @@ func (l *listOrEpochLoads) keepFilter(keep func(string, int32) bool) {
 
 // Merges loads into the caller; used to coalesce loads while a metadata update
 // is happening (see the only use below).
-func (dst *listOrEpochLoads) mergeFrom(src listOrEpochLoads) {
+func (l *listOrEpochLoads) mergeFrom(src listOrEpochLoads) {
 	for _, srcs := range []struct {
 		m        offsetLoadMap
 		loadType listOrEpochLoadType
@@ -939,7 +940,7 @@ func (dst *listOrEpochLoads) mergeFrom(src listOrEpochLoads) {
 	} {
 		for t, ps := range srcs.m {
 			for p, load := range ps {
-				dst.addLoad(t, p, srcs.loadType, load)
+				l.addLoad(t, p, srcs.loadType, load)
 			}
 		}
 	}

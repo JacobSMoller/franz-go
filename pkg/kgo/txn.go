@@ -280,13 +280,13 @@ func (s *GroupTransactSession) End(ctx context.Context, commit TransactionEndTry
 
 				for _, t := range resp.Topics {
 					for _, p := range t.Partitions {
-						switch err := kerr.ErrorForCode(p.ErrorCode); err {
-						case nil:
-						case kerr.IllegalGeneration, // rebalance begun & completed before we committed
-							kerr.RebalanceInProgress,     // in rebalance, abort & retry later
-							kerr.CoordinatorNotAvailable, // req failed too many times (same for next two)
-							kerr.CoordinatorLoadInProgress,
-							kerr.NotCoordinator:
+						switch err := kerr.ErrorForCode(p.ErrorCode); {
+						case err == nil:
+						case errors.Is(err, kerr.IllegalGeneration), // rebalance begun & completed before we committed
+							errors.Is(err, kerr.RebalanceInProgress),     // in rebalance, abort & retry later
+							errors.Is(err, kerr.CoordinatorNotAvailable), // req failed too many times (same for next two)
+							errors.Is(err, kerr.CoordinatorLoadInProgress),
+							errors.Is(err, kerr.NotCoordinator):
 							hasAbortableCommitErr = true
 						default:
 							commitErrs = append(commitErrs, fmt.Sprintf("topic %s partition %d: %v", t.Topic, p.Partition, err))

@@ -268,12 +268,12 @@ func (cl *Client) Produce(
 	}
 
 	if r.Topic == "" {
-		if def := cl.cfg.defaultProduceTopic; def != "" {
-			r.Topic = def
-		} else {
+		def := cl.cfg.defaultProduceTopic
+		if def == "" {
 			go promise(r, errors.New("cannot produce to a record that does not have a topic set"))
 			return
 		}
+		r.Topic = def
 	}
 
 	p := &cl.producer
@@ -346,7 +346,7 @@ func (cl *Client) finishRecordPromise(pr promisedRec, err error) {
 		go func() { p.waitBuffer <- struct{}{} }()
 	} else if buffered == 0 && atomic.LoadInt32(&p.flushing) > 0 {
 		p.notifyMu.Lock()
-		p.notifyMu.Unlock()
+		p.notifyMu.Unlock() //nolint:gocritic,staticcheck // We just want to know logic was gated.
 		p.notifyCond.Broadcast()
 	}
 }
@@ -445,7 +445,11 @@ func (cl *Client) producerID() (int64, int16, error) {
 		defer p.idMu.Unlock()
 
 		if id = p.id.Load().(*producerID); errors.Is(id.err, errReloadProducerID) {
-			if cl.cfg.disableIdempotency {
+			// For the idempotent producer, as specified in KIP-360,
+			// if we had an ID, we can bump the epoch locally.
+			// If we are at the max epoch, we will ask for a new ID.
+			switch {
+			case cl.cfg.disableIdempotency:
 				cl.cfg.logger.Log(LogLevelInfo, "skipping producer id initialization because the client was configured to disable idempotent writes")
 				id = &producerID{
 					id:    -1,
@@ -454,12 +458,8 @@ func (cl *Client) producerID() (int64, int16, error) {
 				}
 				p.id.Store(id)
 
-				// For the idempotent producer, as specified in KIP-360,
-				// if we had an ID, we can bump the epoch locally.
-				// If we are at the max epoch, we will ask for a new ID.
-			} else if cl.cfg.txnID == nil && id.id >= 0 && id.epoch < math.MaxInt16-1 {
+			case cl.cfg.txnID == nil && id.id >= 0 && id.epoch < math.MaxInt16-1:
 				cl.resetAllProducerSequences()
-
 				id = &producerID{
 					id:    id.id,
 					epoch: id.epoch + 1,
@@ -467,7 +467,7 @@ func (cl *Client) producerID() (int64, int16, error) {
 				}
 				p.id.Store(id)
 
-			} else {
+			default:
 				newID, keep := cl.doInitProducerID(id.id, id.epoch)
 				if keep {
 					id = newID

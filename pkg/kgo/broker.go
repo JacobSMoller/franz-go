@@ -91,8 +91,6 @@ type BrokerMetadata struct {
 	//
 	// Seed brokers will not have a rack.
 	Rack *string
-
-	_internal struct{} // allow us to add fields later
 }
 
 func (me BrokerMetadata) equals(other kmsg.MetadataResponseBroker) bool {
@@ -654,7 +652,7 @@ start:
 	req.ClientSoftwareName = cxn.cl.cfg.softwareName
 	req.ClientSoftwareVersion = cxn.cl.cfg.softwareVersion
 	cxn.cl.cfg.logger.Log(LogLevelDebug, "issuing api versions request", "broker", logID(cxn.b.meta.NodeID), "version", maxVersion)
-	corrID, bytesWritten, writeWait, timeToWrite, readEnqueue, writeErr := cxn.writeRequest(nil, time.Now(), req)
+	corrID, bytesWritten, writeWait, timeToWrite, readEnqueue, writeErr := cxn.writeRequest(noCtx, time.Now(), req)
 	if writeErr != nil {
 		cxn.hookWriteE2E(req.Key(), bytesWritten, writeWait, timeToWrite, writeErr)
 		return writeErr
@@ -662,7 +660,7 @@ start:
 
 	rt, _ := cxn.cl.connTimeouter.timeouts(req)
 	// api versions does *not* use flexible response headers; see comment in promisedResp
-	rawResp, err := cxn.readResponse(nil, req.Key(), req.GetVersion(), corrID, false, rt, bytesWritten, writeWait, timeToWrite, readEnqueue)
+	rawResp, err := cxn.readResponse(context.Background(), req.Key(), req.GetVersion(), corrID, false, rt, bytesWritten, writeWait, timeToWrite, readEnqueue)
 	if err != nil {
 		return err
 	}
@@ -679,7 +677,7 @@ start:
 	// Post, Kafka replies with all versions.
 	if rawResp[1] == 35 {
 		if maxVersion == 0 {
-			return errors.New("Kafka replied with UNSUPPORTED_VERSION to an ApiVersions request of version 0")
+			return errors.New("Kafka replied with UNSUPPORTED_VERSION to an ApiVersions request of version 0") //nolint:stylecheck // Kafka is a proper noun
 		}
 		srawResp := string(rawResp)
 		if srawResp == "\x00\x23\x00\x00\x00\x00" ||
@@ -726,25 +724,25 @@ start:
 		req.Mechanism = mechanism.Name()
 		req.Version = v.versions[req.Key()]
 		cxn.cl.cfg.logger.Log(LogLevelDebug, "issuing SASLHandshakeRequest", "broker", logID(cxn.b.meta.NodeID))
-		corrID, bytesWritten, writeWait, timeToWrite, readEnqueue, writeErr := cxn.writeRequest(nil, time.Now(), req)
+		corrID, bytesWritten, writeWait, timeToWrite, readEnqueue, writeErr := cxn.writeRequest(noCtx, time.Now(), req)
 		if writeErr != nil {
 			cxn.hookWriteE2E(req.Key(), bytesWritten, writeWait, timeToWrite, writeErr)
 			return writeErr
 		}
 
 		rt, _ := cxn.cl.connTimeouter.timeouts(req)
-		rawResp, err := cxn.readResponse(nil, req.Key(), req.GetVersion(), corrID, req.IsFlexible(), rt, bytesWritten, writeWait, timeToWrite, readEnqueue)
+		rawResp, err := cxn.readResponse(context.Background(), req.Key(), req.GetVersion(), corrID, req.IsFlexible(), rt, bytesWritten, writeWait, timeToWrite, readEnqueue)
 		if err != nil {
 			return err
 		}
 		resp := req.ResponseKind().(*kmsg.SASLHandshakeResponse)
-		if err = resp.ReadFrom(rawResp); err != nil {
+		if err := resp.ReadFrom(rawResp); err != nil {
 			return err
 		}
 
 		err = kerr.ErrorForCode(resp.ErrorCode)
 		if err != nil {
-			if !retried && err == kerr.UnsupportedSaslMechanism {
+			if !retried && errors.Is(err, kerr.UnsupportedSaslMechanism) {
 				for _, ours := range cxn.cl.cfg.sasls[1:] {
 					for _, supported := range resp.SupportedMechanisms {
 						if supported == ours.Name() {
@@ -813,7 +811,7 @@ func (cxn *brokerCxn) doSasl(authenticate bool) error {
 			req.Version = cxn.b.loadVersions().versions[req.Key()]
 			cxn.cl.cfg.logger.Log(LogLevelDebug, "issuing SASLAuthenticate", "broker", logID(cxn.b.meta.NodeID), "version", req.Version, "step", step)
 
-			corrID, bytesWritten, writeWait, timeToWrite, readEnqueue, writeErr := cxn.writeRequest(nil, time.Now(), req)
+			corrID, bytesWritten, writeWait, timeToWrite, readEnqueue, writeErr := cxn.writeRequest(noCtx, time.Now(), req)
 
 			// As mentioned above, we could have one final write
 			// without reading a response back (kerberos). If this
@@ -825,12 +823,12 @@ func (cxn *brokerCxn) doSasl(authenticate bool) error {
 				}
 			}
 			if !done {
-				rawResp, err := cxn.readResponse(nil, req.Key(), req.GetVersion(), corrID, req.IsFlexible(), rt, bytesWritten, writeWait, timeToWrite, readEnqueue)
+				rawResp, err := cxn.readResponse(context.Background(), req.Key(), req.GetVersion(), corrID, req.IsFlexible(), rt, bytesWritten, writeWait, timeToWrite, readEnqueue)
 				if err != nil {
 					return err
 				}
 				resp := req.ResponseKind().(*kmsg.SASLAuthenticateResponse)
-				if err = resp.ReadFrom(rawResp); err != nil {
+				if err := resp.ReadFrom(rawResp); err != nil {
 					return err
 				}
 
@@ -881,11 +879,12 @@ func maybeUpdateCtxErr(clientCtx, reqCtx context.Context, err *error) {
 	}
 }
 
+var noCtx = context.WithValue(context.Background(), new(string), new(string))
+
 // writeRequest writes a message request to the broker connection, bumping the
 // connection's correlation ID as appropriate for the next write.
 func (cxn *brokerCxn) writeRequest(ctx context.Context, enqueuedForWritingAt time.Time, req kmsg.Request) (corrID int32, bytesWritten int, writeWait, timeToWrite time.Duration, readEnqueue time.Time, writeErr error) {
-	// A nil ctx means we cannot be throttled.
-	if ctx != nil {
+	if ctx != noCtx {
 		throttleUntil := time.Unix(0, atomic.LoadInt64(&cxn.throttleUntil))
 		if sleep := time.Until(throttleUntil); sleep > 0 {
 			after := time.NewTimer(sleep)
@@ -995,9 +994,6 @@ func (cxn *brokerCxn) readConn(
 		atomic.SwapUint32(&cxn.reading, 0)
 	}()
 
-	if ctx == nil {
-		ctx = context.Background()
-	}
 	if timeout > 0 {
 		cxn.conn.SetReadDeadline(time.Now().Add(timeout))
 	}
@@ -1068,7 +1064,7 @@ func (cxn *brokerCxn) parseReadSize(sizeBuf []byte) (int32, error) {
 				num  uint16
 				text string
 			}{
-				{tls.VersionSSL30, "SSL v3"},
+				{tls.VersionSSL30, "SSL v3"}, //nolint:staticcheck // We are version probing.
 				{tls.VersionTLS10, "TLS v1.0"},
 				{tls.VersionTLS11, "TLS v1.1"},
 				{tls.VersionTLS12, "TLS v1.2"},

@@ -967,14 +967,14 @@ start:
 
 func (g *groupConsumer) handleJoinResp(resp *kmsg.JoinGroupResponse) (restart bool, protocol string, plan []kmsg.SyncGroupRequestGroupAssignment, err error) {
 	if err = kerr.ErrorForCode(resp.ErrorCode); err != nil {
-		switch err {
-		case kerr.MemberIDRequired:
+		switch {
+		case errors.Is(err, kerr.MemberIDRequired):
 			g.mu.Lock()
 			g.memberID = resp.MemberID // KIP-394
 			g.mu.Unlock()
 			g.cfg.logger.Log(LogLevelInfo, "join returned MemberIDRequired, rejoining with response's MemberID", "group", g.cfg.group, "member_id", resp.MemberID)
 			return true, "", nil, nil
-		case kerr.UnknownMemberID:
+		case errors.Is(err, kerr.UnknownMemberID):
 			g.mu.Lock()
 			g.memberID = ""
 			g.mu.Unlock()

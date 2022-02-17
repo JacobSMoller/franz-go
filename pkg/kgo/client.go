@@ -273,8 +273,7 @@ func parseBrokerAddr(addr string) (hostport, error) {
 	// Try to parse as IP:port or host:port
 	h, p, err := net.SplitHostPort(addr)
 	if err != nil {
-		// IPV6 literal - use default Kafka port
-		return hostport{addr, defaultKafkaPort}, nil
+		return hostport{addr, defaultKafkaPort}, nil //nolint:nilerr // IPV6 literal - use default Kafka port
 	}
 	port, err := strconv.ParseInt(p, 10, 32)
 	if err != nil {
@@ -411,11 +410,12 @@ func (cl *Client) fetchBrokerMetadata(ctx context.Context) error {
 func (cl *Client) fetchMetadataForTopics(ctx context.Context, all bool, topics []string) (*broker, *kmsg.MetadataResponse, error) {
 	req := kmsg.NewPtrMetadataRequest()
 	req.AllowAutoTopicCreation = cl.cfg.allowAutoTopicCreation
-	if all {
+	switch {
+	case all:
 		req.Topics = nil
-	} else if len(topics) == 0 {
+	case len(topics) == 0:
 		req.Topics = []kmsg.MetadataRequestTopic{}
-	} else {
+	default:
 		for _, topic := range topics {
 			reqTopic := kmsg.NewMetadataRequestTopic()
 			reqTopic.Topic = kmsg.StringPtr(topic)
@@ -547,7 +547,7 @@ func (cl *Client) Close() {
 	// manageFetchConcurrency loop only exits when all fetches have been
 	// drained, because draining a fetch is what decrements an "active"
 	// fetch. PollFetches with `nil` is instant.
-	cl.PollFetches(nil)
+	cl.PollFetches(nil) //nolint:staticcheck // A nil context is explicitly documented to not wait.
 }
 
 // Request issues a request to Kafka, waiting for and returning the response.
@@ -875,7 +875,7 @@ func (cl *Client) brokerOrErr(ctx context.Context, id int32, err error) (*broker
 		return nil, err
 	}
 
-	tryLoad := ctx != nil
+	tryLoad := ctx != noCtx
 	tries := 0
 start:
 	var broker *broker
@@ -924,7 +924,7 @@ func (cl *Client) controller(ctx context.Context) (*broker, error) {
 		}
 	}
 
-	return cl.brokerOrErr(nil, id, &errUnknownController{id})
+	return cl.brokerOrErr(noCtx, id, &errUnknownController{id})
 }
 
 // forgetControllerID is called once an admin requests sees NOT_CONTROLLER.
@@ -1025,7 +1025,7 @@ start:
 		// that coordinator. We delete the stale coordinator here and
 		// retry once. The retry will force a coordinator reload, and
 		// everything will be fresh. Any errors after that we keep.
-		b, err := cl.brokerOrErr(nil, c.node, &errUnknownCoordinator{c.node, key})
+		b, err := cl.brokerOrErr(noCtx, c.node, &errUnknownCoordinator{c.node, key})
 		if err != nil && !restarted {
 			restarted = true
 			cl.deleteStaleCoordinatorIfEqual(key, c)
@@ -1548,11 +1548,12 @@ func (cl *Client) handleShardedReq(ctx context.Context, req kmsg.Request) ([]Res
 		if debug {
 			var brokerAnys []string
 			for _, issue := range issues {
-				if issue.err != nil {
+				switch {
+				case issue.err != nil:
 					brokerAnys = append(brokerAnys, "err")
-				} else if issue.any {
+				case issue.any:
 					brokerAnys = append(brokerAnys, "any")
-				} else {
+				default:
 					brokerAnys = append(brokerAnys, fmt.Sprintf("%d", issue.broker))
 				}
 			}
@@ -2005,7 +2006,7 @@ func (cl *offsetFetchSharder) shard(_ context.Context, kreq kmsg.Request) ([]iss
 	if len(req.Groups) == 0 {
 		berr := coordinators[req.Group]
 		if berr.err != nil {
-			return []issueShard{{
+			return []issueShard{{ //nolint:nilerr // the error is returned in this struct
 				req: req,
 				err: berr.err,
 			}}, false, nil // not reshardable, because this is an error

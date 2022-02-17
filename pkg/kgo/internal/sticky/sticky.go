@@ -634,7 +634,6 @@ func (b *balancer) balance() {
 }
 
 func (b *balancer) balanceComplex() {
-out:
 	for min := b.planByNumPartitions.Min(); b.planByNumPartitions.Len() > 1; min = b.planByNumPartitions.Min() {
 		level := min.Item.(*partitionLevel)
 		// If this max level is within one of this level, then nothing
@@ -652,7 +651,7 @@ out:
 					b.reassignPartition(segment.src, segment.dst, segment.part)
 				}
 				if len(max.members) == 0 {
-					continue out
+					break
 				}
 				continue
 			}

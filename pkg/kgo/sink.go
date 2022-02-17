@@ -680,7 +680,7 @@ func (s *sink) handleReqRespBatch(
 	err := kerr.ErrorForCode(errorCode)
 	switch {
 	case kerr.IsRetriable(err) &&
-		err != kerr.CorruptMessage &&
+		!errors.Is(err, kerr.CorruptMessage) &&
 		batch.tries < s.cl.cfg.recordRetries:
 
 		if debug {
@@ -688,10 +688,10 @@ func (s *sink) handleReqRespBatch(
 		}
 		return true, false
 
-	case err == kerr.OutOfOrderSequenceNumber,
-		err == kerr.UnknownProducerID,
-		err == kerr.InvalidProducerIDMapping,
-		err == kerr.InvalidProducerEpoch:
+	case errors.Is(err, kerr.OutOfOrderSequenceNumber),
+		errors.Is(err, kerr.UnknownProducerID),
+		errors.Is(err, kerr.InvalidProducerIDMapping),
+		errors.Is(err, kerr.InvalidProducerEpoch):
 
 		// OOOSN always means data loss 1.0.0+ and is ambiguous prior.
 		// We assume the worst and only continue if requested.
@@ -758,7 +758,9 @@ func (s *sink) handleReqRespBatch(
 		//
 		// We should not be here, since this error occurs in the
 		// context of transactions, which are caught above.
-		s.cl.cfg.logger.Log(LogLevelInfo, fmt.Sprintf("batch errored with %s, failing the producer ID and resetting all sequence numbers", err.(*kerr.Error).Message),
+		var ke *kerr.Error
+		errors.As(err, &ke) // cannot fail due to above
+		s.cl.cfg.logger.Log(LogLevelInfo, fmt.Sprintf("batch errored with %s, failing the producer ID and resetting all sequence numbers", ke.Message),
 			"broker", logID(s.nodeID),
 			"topic", topic,
 			"partition", partition,
@@ -777,7 +779,7 @@ func (s *sink) handleReqRespBatch(
 		}
 		return true, false
 
-	case err == kerr.DuplicateSequenceNumber: // ignorable, but we should not get
+	case errors.Is(err, kerr.DuplicateSequenceNumber): // ignorable, but we should not get
 		s.cl.cfg.logger.Log(LogLevelInfo, "received unexpected duplicate sequence number, ignoring and treating batch as successful",
 			"broker", logID(s.nodeID),
 			"topic", topic,

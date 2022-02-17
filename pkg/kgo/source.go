@@ -677,8 +677,8 @@ func (s *source) fetch(consumerSession *consumerSession, doneFetch chan<- struct
 	// The top level error code is related to fetch sessions only, and if
 	// there was an error, the body was empty (so processing is basically a
 	// no-op). We process the fetch session error now.
-	switch err := kerr.ErrorForCode(resp.ErrorCode); err {
-	case kerr.FetchSessionIDNotFound:
+	switch err := kerr.ErrorForCode(resp.ErrorCode); {
+	case errors.Is(err, kerr.FetchSessionIDNotFound):
 		if s.session.epoch == 0 {
 			// If the epoch was zero, the broker did not even
 			// establish a session for us (and thus is maxed on
@@ -690,17 +690,18 @@ func (s *source) fetch(consumerSession *consumerSession, doneFetch chan<- struct
 			s.session.reset()
 		}
 		return
-	case kerr.InvalidFetchSessionEpoch:
+	case errors.Is(err, kerr.InvalidFetchSessionEpoch):
 		s.cl.cfg.logger.Log(LogLevelInfo, "resetting fetch session", "broker", logID(s.nodeID), "err", err)
 		s.session.reset()
 		return
 
-	case kerr.FetchSessionTopicIDError, kerr.UnknownTopicID, kerr.InconsistentTopicID:
+	case errors.Is(err, kerr.FetchSessionTopicIDError),
+		errors.Is(err, kerr.UnknownTopicID),
+		errors.Is(err, kerr.InconsistentTopicID):
 		s.cl.cfg.logger.Log(LogLevelInfo, "topic id issues, resetting session and updating metadata", "broker", logID(s.nodeID), "err", err)
 		s.session.reset()
 		s.cl.triggerUpdateMetadataNow("topic id issues")
 		return
-
 	}
 
 	// At this point, we have successfully processed the response. Even if
@@ -813,7 +814,7 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 			// We only keep the partition if it has no error, or an
 			// error we do not internally retry.
 			var keep bool
-			switch fp.Err {
+			switch {
 			default:
 				// - bad auth
 				// - unsupported compression
@@ -822,14 +823,14 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 				// - or, no error
 				keep = true
 
-			case kerr.UnknownTopicOrPartition,
-				kerr.NotLeaderForPartition,
-				kerr.ReplicaNotAvailable,
-				kerr.KafkaStorageError,
-				kerr.UnknownLeaderEpoch, // our meta is newer than broker we fetched from
-				kerr.OffsetNotAvailable: // fetched from out of sync replica or a behind in-sync one (KIP-392: case 1 and case 2)
+			case errors.Is(fp.Err, kerr.UnknownTopicOrPartition),
+				errors.Is(fp.Err, kerr.NotLeaderForPartition),
+				errors.Is(fp.Err, kerr.ReplicaNotAvailable),
+				errors.Is(fp.Err, kerr.KafkaStorageError),
+				errors.Is(fp.Err, kerr.UnknownLeaderEpoch), // our meta is newer than broker we fetched from
+				errors.Is(fp.Err, kerr.OffsetNotAvailable): // fetched from out of sync replica or a behind in-sync one (KIP-392: case 1 and case 2)
 
-			case kerr.OffsetOutOfRange:
+			case errors.Is(fp.Err, kerr.OffsetOutOfRange):
 				// If we are out of range, we reset to what we can.
 				// With Kafka >= 2.1.0, we should only get offset out
 				// of range if we fetch before the start, but a user
@@ -852,17 +853,18 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 				// we stay in a cycle of validating the leader epoch
 				// until the follower has caught up.
 
-				if s.nodeID == partOffset.from.leader { // non KIP-392 case
+				switch {
+				case s.nodeID == partOffset.from.leader: // non KIP-392 case
 					reloadOffsets.addLoad(topic, partition, loadTypeList, offsetLoad{
 						replica: -1,
 						Offset:  s.cl.cfg.resetOffset,
 					})
-				} else if partOffset.offset < fp.LogStartOffset { // KIP-392 case 3
+				case partOffset.offset < fp.LogStartOffset: // KIP-392 case 3
 					reloadOffsets.addLoad(topic, partition, loadTypeList, offsetLoad{
 						replica: s.nodeID,
 						Offset:  s.cl.cfg.resetOffset,
 					})
-				} else { // partOffset.offset > fp.HighWatermark, KIP-392 case 4
+				default: // partOffset.offset > fp.HighWatermark, KIP-392 case 4
 					if kip320 {
 						reloadOffsets.addLoad(topic, partition, loadTypeEpoch, offsetLoad{
 							replica: -1,
@@ -882,7 +884,7 @@ func (s *source) handleReqResp(br *broker, req *fetchRequest, resp *kmsg.FetchRe
 					}
 				}
 
-			case kerr.FencedLeaderEpoch:
+			case errors.Is(fp.Err, kerr.FencedLeaderEpoch):
 				// With fenced leader epoch, we notify an error only
 				// if necessary after we find out if loss occurred.
 				// If we have consumed nothing, then we got unlucky
@@ -1117,7 +1119,7 @@ func (o *cursorOffsetNext) processRecordBatch(
 	batch *kmsg.RecordBatch,
 	aborter aborter,
 	decompressor *decompressor,
-) (int, int) {
+) (nrecs, nbytes int) {
 	if batch.Magic != 2 {
 		fp.Err = fmt.Errorf("unknown batch magic %d", batch.Magic)
 		return 0, 0
@@ -1191,7 +1193,7 @@ func (o *cursorOffsetNext) processV1OuterMessage(
 	fp *FetchPartition,
 	message *kmsg.MessageV1,
 	decompressor *decompressor,
-) (int, int) {
+) (nrecs, nbytes int) {
 	compression := byte(message.Attributes & 0x0003)
 	if compression == 0 {
 		o.processV1Message(fp, message)
@@ -1302,7 +1304,7 @@ func (o *cursorOffsetNext) processV0OuterMessage(
 	fp *FetchPartition,
 	message *kmsg.MessageV0,
 	decompressor *decompressor,
-) (int, int) {
+) (nrecs, nbytes int) {
 	compression := byte(message.Attributes & 0x0003)
 	if compression == 0 {
 		o.processV0Message(fp, message)
