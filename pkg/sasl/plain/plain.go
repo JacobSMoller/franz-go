@@ -18,8 +18,6 @@ type Auth struct {
 
 	// Pass is the password to use for authentication.
 	Pass string
-
-	_internal struct{} // require explicit field initalization
 }
 
 // AsMechanism returns a sasl mechanism that will use 'a' as credentials for

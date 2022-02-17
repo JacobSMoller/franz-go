@@ -51,8 +51,6 @@ type Auth struct {
 	//
 	// Set this to true if the user and pass are from a delegation token.
 	IsToken bool
-
-	_internal struct{} // require explicit field initalization
 }
 
 // AsSha256Mechanism returns a sasl mechanism that will use 'a' as credentials

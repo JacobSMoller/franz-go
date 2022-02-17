@@ -236,21 +236,23 @@ func (vs *Versions) VersionGuess(opts ...VersionGuessOpt) string {
 				continue
 			}
 			cmpv, has := cmp[k16]
-			if has {
+			switch {
+			case has:
 				// If our version for this key is less than the
 				// comparison versions, then we are less than what we
 				// are comparing.
-				if v < cmpv {
+				switch {
+				case v < cmpv:
 					under = true
-				} else if v > cmpv {
+				case v > cmpv:
 					// Similarly, if our version is more, then we
 					// are over what we are comparing.
 					over = true
-				} else {
+				default:
 					equal = true
 				}
 				delete(cmp, k16)
-			} else if v >= 0 {
+			case v >= 0:
 				// If what we are comparing to does not even have this
 				// key **and** our version is larger non-zero, then our
 				// version is larger than what we are comparing to.
@@ -258,7 +260,7 @@ func (vs *Versions) VersionGuess(opts ...VersionGuessOpt) string {
 				// We can have a negative version if a key was manually
 				// unset.
 				over = true
-			} else {
+			default:
 				// If the version is < 0, the key is unset.
 			}
 		}

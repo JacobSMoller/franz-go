@@ -63,7 +63,7 @@ func TypedErrorForCode(code int16) *Error {
 	if err == nil {
 		return nil
 	}
-	return err.(*Error)
+	return err.(*Error) //nolint:errorlint // code2err contains only *Error types, or nil
 }
 
 // IsRetriable returns whether a Kafka error is considered retriable.

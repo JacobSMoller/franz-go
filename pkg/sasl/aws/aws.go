@@ -51,8 +51,6 @@ type Auth struct {
 	//     https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_condition-keys.html#condition-keys-useragent
 	//
 	UserAgent string
-
-	_internal struct{} // require explicit field initalization
 }
 
 var hostname, _ = os.Hostname()
@@ -196,9 +194,7 @@ func task1(host, qps string) []byte {
 	//   SignedHeaders + '\n' +
 	canon = append(canon, "host:"...)
 	canon = append(canon, host...)
-	canon = append(canon, '\n')
-	canon = append(canon, '\n')
-	canon = append(canon, "host\n"...)
+	canon = append(canon, "\n\nhost\n"...)
 
 	// Finally, we add our empty body.
 	//

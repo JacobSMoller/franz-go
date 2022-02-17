@@ -23,8 +23,6 @@ type Auth struct {
 	Token string
 	// Extensions are key value pairs to add to the authentication request.
 	Extensions map[string]string
-
-	_internal struct{} // require explicit field initalization
 }
 
 // AsMechanism returns a sasl mechanism that will use 'a' as credentials for
