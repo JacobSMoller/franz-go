@@ -137,7 +137,7 @@ func challenge(auth Auth, host string) ([]byte, error) {
 		v.Set("X-Amz-Security-Token", auth.SessionToken)
 	}
 
-	qps := strings.Replace(v.Encode(), "+", "%20", -1)
+	qps := strings.ReplaceAll(v.Encode(), "+", "%20")
 
 	canonicalRequest := task1(host, qps)
 	sts := task2(timestamp, scope, canonicalRequest)
@@ -217,8 +217,8 @@ func task2(timestamp, scope string, canonicalRequest []byte) []byte {
 	toSign = append(toSign, '\n')
 	canonHash := sha256.Sum256(canonicalRequest)
 	hexBuf := make([]byte, 64) // 32 bytes to 64
-	hex.Encode(hexBuf[:], canonHash[:])
-	toSign = append(toSign, hexBuf[:]...)
+	hex.Encode(hexBuf, canonHash[:])
+	toSign = append(toSign, hexBuf...)
 	return toSign
 }
 

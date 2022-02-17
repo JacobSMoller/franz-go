@@ -176,7 +176,7 @@ func (s *session) authenticateClient(serverFirstMsg []byte) ([]byte, error) {
 		return nil, fmt.Errorf("unexpected kv %q where nonce expected", kvs[0])
 	}
 	serverNonce := kvs[0][2:]
-	if !bytes.HasPrefix(serverNonce, []byte(s.auth.Nonce)) {
+	if !bytes.HasPrefix(serverNonce, s.auth.Nonce) {
 		return nil, errors.New("server did not reply with nonce beginning with client nonce")
 	}
 
